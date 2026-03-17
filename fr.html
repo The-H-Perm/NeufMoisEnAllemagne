@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Checklist Prépa Bébé — Allemagne</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👶</text></svg>" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f5f5f7; min-height: 100vh; }
+    #root { min-height: 100vh; }
+    input[type="range"] { accent-color: #6c5ce7; }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.4s ease forwards; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .sync-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+    .sync-dot.live { background:#43a047; animation: pulse 2s infinite; }
+    .sync-dot.off { background:#e74c3c; }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.9/babel.min.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyCfRzZAUVPgRgRrqjy9xm3uuZBWogpzQIs",
+      authDomain: "baby-checklist-benji.firebaseapp.com",
+      databaseURL: "https://baby-checklist-benji-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "baby-checklist-benji",
+      storageBucket: "baby-checklist-benji.firebasestorage.app",
+      messagingSenderId: "512404948020",
+      appId: "1:512404948020:web:b2d95fb7b3bf7d5cdeb661"
+    });
+    var db = firebase.database();
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
+
+function getSessionRef(code) { return db.ref("sessions/" + code); }
+function generateCode() {
+  const words = ["BEBE","AMOUR","JOIE","DOUX","REVE","ETOILE","NOEL","LUNA","HOPE","STAR"];
+  const w = words[Math.floor(Math.random() * words.length)];
+  return w + "-" + String(Math.floor(1000 + Math.random() * 9000));
+}
+
+const DEFAULT_TASKS = [
+  { id: "t1", section: "Urgent — À faire maintenant", task: "Trouver une Hebamme (sage-femme de suivi postnatal)", weeksBefore: -24, notes: "Chercher sur hebammensuche.de — la plupart sont réservées des mois à l'avance", category: "medical" },
+  { id: "t2", section: "Urgent — À faire maintenant", task: "Vaterschaftsanerkennung au Standesamt", weeksBefore: -20, notes: "Reconnaissance de paternité, obligatoire si non mariés. Apporter les pièces d'identité + actes de naissance apostillés", category: "legal" },
+  { id: "t3", section: "Urgent — À faire maintenant", task: "Gemeinsames Sorgerecht au Jugendamt", weeksBefore: -20, notes: "Déclaration de garde partagée — peut souvent se faire le même jour que ci-dessus", category: "legal" },
+  { id: "t4", section: "Urgent — À faire maintenant", task: "Choisir la maternité (Geburtsklinik) & assister à l'Infoabend", weeksBefore: -16, notes: "Comparer les hôpitaux locaux ; s'inscrire à leur soirée d'information", category: "medical" },
+  { id: "t5", section: "Urgent — À faire maintenant", task: "S'inscrire au cours de préparation à l'accouchement", weeksBefore: -18, notes: "Geburtsvorbereitungskurs — pris en charge pour la mère ; le partenaire paie ~80–120€", category: "medical" },
+  { id: "t6", section: "Urgent — À faire maintenant", task: "Trouver un pédiatre (Kinderarzt)", weeksBefore: -14, notes: "Prendre un RDV de premier contact (Kennenlerntermin) ; les bons se remplissent vite", category: "medical" },
+  { id: "t7", section: "Administratif & Assurances", task: "Informer l'employeur du congé parental (Elternzeit)", weeksBefore: -10, notes: "Déclaration écrite obligatoire, 7 semaines avant le début ; décider la répartition des mois", category: "work" },
+  { id: "t8", section: "Administratif & Assurances", task: "Calculer et préparer l'Elterngeld", weeksBefore: -12, notes: "Utiliser le simulateur BMFSFJ ; choisir entre Basiselterngeld et ElterngeldPlus", category: "financial" },
+  { id: "t9", section: "Administratif & Assurances", task: "Clarifier la Familienversicherung avec la Krankenkasse", weeksBefore: -12, notes: "Le bébé est couvert par l'assurance d'un des parents dès la naissance", category: "financial" },
+  { id: "t10", section: "Administratif & Assurances", task: "Vérifier l'éligibilité au Mutterschaftsgeld", weeksBefore: -12, notes: "Si la mère est salariée : allocation maternité Krankenkasse + complément employeur", category: "financial" },
+  { id: "t11", section: "Administratif & Assurances", task: "Rassembler et apostiller les actes de naissance étrangers", weeksBefore: -14, notes: "Si parent non allemand : commander auprès du service d'état civil du pays d'origine ; prévoir plusieurs semaines", category: "legal" },
+  { id: "t12", section: "Équipement & Maison", task: "Acheter poussette + siège auto (Babyschale)", weeksBefore: -8, notes: "Vérifier la compatibilité ; s'entraîner à installer le siège auto", category: "gear" },
+  { id: "t13", section: "Équipement & Maison", task: "Installer le plan de change (Wickelplatz)", weeksBefore: -6, notes: "Wickelkommode ou Aufsatz + lampe chauffante + fournitures", category: "gear" },
+  { id: "t14", section: "Équipement & Maison", task: "Installer le coin sommeil", weeksBefore: -6, notes: "Beistellbett ou lit à barreaux, matelas ferme + gigoteuse (pas de couvertures — recommandations SIDS)", category: "gear" },
+  { id: "t15", section: "Équipement & Maison", task: "Stocker couches (taille 1 + 2) & lingettes", weeksBefore: -5, notes: "Un nouveau-né utilise 8–12 couches par jour", category: "gear" },
+  { id: "t16", section: "Équipement & Maison", task: "Vêtements bébé : tailles 50, 56, 62", weeksBefore: -6, notes: "Bodies, pyjamas, bonnets, chaussettes — ne pas trop acheter en taille 50", category: "gear" },
+  { id: "t17", section: "Équipement & Maison", task: "Préparer le sac de maternité (Kliniktasche)", weeksBefore: -5, notes: "Mutterpass, pièces d'identité, tenue bébé, coussin d'allaitement, snacks. Prêt à la semaine 36", category: "gear" },
+  { id: "t18", section: "Équipement & Maison", task: "Installer le siège auto dans la voiture", weeksBefore: -4, notes: "S'entraîner avant le jour J", category: "gear" },
+  { id: "t19", section: "Derniers Préparatifs", task: "Préparer et congeler des repas", weeksBefore: -3, notes: "Vous ne cuisinerez presque plus pendant des semaines — remplir le congélateur", category: "life" },
+  { id: "t20", section: "Derniers Préparatifs", task: "Finaliser le choix du prénom", weeksBefore: -2, notes: "Nécessaire pour l'acte de naissance — le Standesamt peut refuser certains prénoms en Allemagne", category: "legal" },
+  { id: "t21", section: "Derniers Préparatifs", task: "Pré-déclarer la naissance au Standesamt si possible", weeksBefore: -2, notes: "Certains Standesämter permettent une Voranmeldung avec tous les documents", category: "legal" },
+  { id: "t22", section: "Derniers Préparatifs", task: "Confirmer le planning postnatal de la Hebamme", weeksBefore: -2, notes: "Elle viendra à domicile dès le jour 1–2 après la sortie de maternité", category: "medical" },
+  { id: "t23", section: "Derniers Préparatifs", task: "Passation au travail & plan de couverture", weeksBefore: -2, notes: "S'assurer que les collègues peuvent assurer pendant votre absence", category: "work" },
+  { id: "t24", section: "Premiers Jours (Maternité)", task: "Examen U1", weeksBefore: 0, notes: "Réalisé immédiatement après la naissance par le pédiatre de l'hôpital", category: "medical" },
+  { id: "t25", section: "Premiers Jours (Maternité)", task: "Lancer l'acte de naissance (Geburtsurkunde)", weeksBefore: 0, notes: "L'hôpital envoie la Geburtsanzeige au Standesamt", category: "legal" },
+  { id: "t26", section: "2 Premières Semaines", task: "Récupérer la Geburtsurkunde (demander plusieurs copies !)", weeksBefore: 1, notes: "Nécessaire pour : Elterngeld, Kindergeld, assurance, consulat", category: "legal" },
+  { id: "t27", section: "2 Premières Semaines", task: "Examen U2", weeksBefore: 1, notes: "Jour 3–10 : dépistage métabolique + test auditif (Hörscreening)", category: "medical" },
+  { id: "t28", section: "2 Premières Semaines", task: "Déclarer le bébé au Einwohnermeldeamt (Anmeldung)", weeksBefore: 2, notes: "Apporter Geburtsurkunde + vos Meldebescheinigungen", category: "legal" },
+  { id: "t29", section: "2 Premières Semaines", task: "Inscrire le bébé à la Krankenkasse", weeksBefore: 2, notes: "Demande de Familienversicherung + Geburtsurkunde", category: "financial" },
+  { id: "t30", section: "2 Premières Semaines", task: "Demander le Kindergeld à la Familienkasse", weeksBefore: 2, notes: "Actuellement ~250€/mois ; demande en ligne sur familienkasse.de", category: "financial" },
+  { id: "t31", section: "3 Premiers Mois", task: "Demander l'Elterngeld à l'Elterngeldstelle", weeksBefore: 4, notes: "Rétroactif max 3 mois — ne pas tarder !", category: "financial" },
+  { id: "t32", section: "3 Premiers Mois", task: "Examen U3", weeksBefore: 5, notes: "Semaine 4–5 chez le Kinderarzt", category: "medical" },
+  { id: "t33", section: "3 Premiers Mois", task: "Déclarer la naissance au consulat du pays d'origine", weeksBefore: 4, notes: "Si parent non allemand : vérifier les exigences et délais du consulat", category: "legal" },
+  { id: "t34", section: "3 Premiers Mois", task: "Demander le(s) passeport(s) du bébé", weeksBefore: 8, notes: "Chaque nationalité = une demande séparée ; photos d'identité nécessaires", category: "legal" },
+  { id: "t35", section: "3 Premiers Mois", task: "Confirmer la position sur liste d'attente Kita", weeksBefore: 8, notes: "Reconfirmer votre intérêt ; les places sont très disputées", category: "life" },
+  { id: "t36", section: "3 Premiers Mois", task: "Examen U4", weeksBefore: 14, notes: "Mois 3–4 chez le Kinderarzt", category: "medical" },
+  { id: "t37", section: "3 Premiers Mois", task: "Rückbildungskurs pour la mère", weeksBefore: 8, notes: "~6–8 semaines post-partum ; pris en charge — réserver tôt", category: "medical" },
+];
+
+const SECTION_ORDER_DEFAULT = [
+  "Urgent — À faire maintenant", "Administratif & Assurances", "Équipement & Maison",
+  "Derniers Préparatifs", "Premiers Jours (Maternité)", "2 Premières Semaines", "3 Premiers Mois",
+];
+
+const CATEGORY_META = {
+  medical: { label: "Médical", color: "#e74c3c", bg: "#fdf0ef" },
+  legal: { label: "Juridique / Admin", color: "#8e44ad", bg: "#f5eef8" },
+  financial: { label: "Financier", color: "#e67e22", bg: "#fef5e7" },
+  gear: { label: "Équipement", color: "#2980b9", bg: "#eaf2f8" },
+  work: { label: "Travail", color: "#16a085", bg: "#e8f8f5" },
+  life: { label: "Vie quotidienne", color: "#7f8c8d", bg: "#f2f3f4" },
+};
+
+const addWeeks = (date, weeks) => { const d = new Date(date); d.setDate(d.getDate() + weeks * 7); return d; };
+const formatDate = (d) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+const weeksUntil = (from, to) => Math.round((to - from) / (1000 * 60 * 60 * 24 * 7));
+function getStatus(deadline, done) {
+  if (done) return "done";
+  const diff = (deadline - new Date()) / (1000 * 60 * 60 * 24);
+  if (diff < 0) return "overdue";
+  if (diff < 14) return "urgent";
+  if (diff < 42) return "upcoming";
+  return "future";
+}
+
+const STATUS_STYLES = {
+  done: { bg: "#e8f5e9", border: "#66bb6a", badge: "#43a047", text: "Fait" },
+  overdue: { bg: "#ffebee", border: "#ef5350", badge: "#d32f2f", text: "En retard" },
+  urgent: { bg: "#fff8e1", border: "#ffb300", badge: "#f57f17", text: "Bientôt" },
+  upcoming: { bg: "#e3f2fd", border: "#42a5f5", badge: "#1565c0", text: "À venir" },
+  future: { bg: "#fafafa", border: "#e0e0e0", badge: "#9e9e9e", text: "Plus tard" },
+};
+
+let _idC = 100;
+const genId = () => "t" + Date.now() + "_" + (++_idC);
+
+function Modal({ open, onClose, title, children }) {
+  if (!open) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(3px)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: "28px 28px 20px", width: "92%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#16213e", fontFamily: "'Playfair Display', serif" }}>{title}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#aaa", lineHeight: 1 }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = { width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #ddd", fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none", marginBottom: 12 };
+const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#888", marginBottom: 5 };
+const btnPrimary = { padding: "10px 22px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: "#6c5ce7", color: "#fff" };
+const btnDanger = { ...btnPrimary, background: "#e74c3c" };
+const btnGhost = { ...btnPrimary, background: "transparent", color: "#888", border: "1.5px solid #ddd" };
+
+function SessionLobby({ onJoin }) {
+  const [mode, setMode] = useState(null);
+  const [joinCode, setJoinCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("baby-checklist-session");
+    if (saved) {
+      setLoading(true);
+      getSessionRef(saved).once("value").then((snap) => {
+        if (snap.exists()) onJoin(saved);
+        else { localStorage.removeItem("baby-checklist-session"); setLoading(false); }
+      }).catch(() => setLoading(false));
+    }
+  }, []);
+
+  const handleCreate = async () => {
+    setLoading(true);
+    const code = generateCode();
+    await getSessionRef(code).set({ dueDate: "", tasks: DEFAULT_TASKS, sectionOrder: SECTION_ORDER_DEFAULT, checked: {}, createdAt: Date.now() });
+    localStorage.setItem("baby-checklist-session", code);
+    onJoin(code);
+  };
+
+  const handleJoin = async () => {
+    if (!joinCode.trim()) return;
+    setError(""); setLoading(true);
+    const code = joinCode.trim().toUpperCase();
+    const snap = await getSessionRef(code).once("value");
+    if (snap.exists()) { localStorage.setItem("baby-checklist-session", code); onJoin(code); }
+    else { setError("Session introuvable. Vérifiez le code et réessayez."); setLoading(false); }
+  };
+
+  if (loading) return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", color: "#16213e" }}>
+      <div style={{ textAlign: "center" }}><div style={{ fontSize: 48, marginBottom: 16 }}>👶</div><div style={{ fontSize: 16, fontWeight: 600 }}>Connexion...</div></div>
+    </div>
+  );
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif", maxWidth: 440, margin: "0 auto", padding: "60px 20px", color: "#1a1a2e" }}>
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ fontSize: 56, marginBottom: 8 }}>👶</div>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 800, margin: "0 0 6px", color: "#16213e" }}>Checklist Prépa Bébé</h1>
+        <p style={{ fontSize: 13, color: "#7f8c8d", fontWeight: 500 }}>Édition Allemagne — synchronisée en temps réel entre appareils</p>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <a href="index.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇬🇧 English</a>
+      </div>
+      {!mode && (
+        <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <button onClick={handleCreate} style={{ ...btnPrimary, padding: "16px 24px", fontSize: 16, background: "linear-gradient(135deg, #6c5ce7, #a29bfe)", borderRadius: 14, width: "100%" }}>✨ Créer une nouvelle session</button>
+          <button onClick={() => setMode("join")} style={{ ...btnGhost, padding: "16px 24px", fontSize: 16, borderRadius: 14, width: "100%" }}>🔗 Rejoindre une session existante</button>
+        </div>
+      )}
+      {mode === "join" && (
+        <div className="fade-in">
+          <label style={labelStyle}>Code de session</label>
+          <input style={{ ...inputStyle, fontSize: 22, textAlign: "center", letterSpacing: 3, fontWeight: 700, textTransform: "uppercase" }}
+            placeholder="BEBE-1234" value={joinCode} onChange={(e) => setJoinCode(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }} autoFocus />
+          {error && <p style={{ color: "#e74c3c", fontSize: 13, marginBottom: 12, fontWeight: 600 }}>{error}</p>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => { setMode(null); setError(""); }} style={{ ...btnGhost, flex: 1 }}>Retour</button>
+            <button onClick={handleJoin} style={{ ...btnPrimary, flex: 1, opacity: joinCode.trim() ? 1 : 0.4 }}>Rejoindre</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChecklistApp({ sessionCode }) {
+  const [dueDate, setDueDate] = useState("");
+  const [tasks, setTasks] = useState(DEFAULT_TASKS);
+  const [sectionOrder, setSectionOrder] = useState(SECTION_ORDER_DEFAULT);
+  const [checked, setChecked] = useState({});
+  const [filterCat, setFilterCat] = useState("all");
+  const [hideCompleted, setHideCompleted] = useState(false);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [addTaskSection, setAddTaskSection] = useState("");
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [newTask, setNewTask] = useState({ task: "", weeksBefore: 0, notes: "", category: "life" });
+  const [newSectionName, setNewSectionName] = useState("");
+  const [newSectionWeeks, setNewSectionWeeks] = useState(0);
+  const [synced, setSynced] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const isRemoteUpdate = useRef(false);
+  const sessionRef = useRef(null);
+
+  useEffect(() => {
+    const ref = getSessionRef(sessionCode);
+    sessionRef.current = ref;
+    const unsub = ref.on("value", (snap) => {
+      const data = snap.val(); if (!data) return;
+      isRemoteUpdate.current = true;
+      if (data.dueDate !== undefined) setDueDate(data.dueDate || "");
+      if (data.tasks) setTasks(data.tasks);
+      if (data.sectionOrder) setSectionOrder(data.sectionOrder);
+      if (data.checked) setChecked(data.checked); else setChecked({});
+      setSynced(true);
+      setTimeout(() => { isRemoteUpdate.current = false; }, 50);
+    });
+    return () => ref.off("value", unsub);
+  }, [sessionCode]);
+
+  const pushUpdate = useCallback((updates) => {
+    if (isRemoteUpdate.current || !sessionRef.current) return;
+    sessionRef.current.update(updates);
+  }, []);
+
+  const setDueDateAndSync = (v) => { setDueDate(v); pushUpdate({ dueDate: v }); };
+  const setTasksAndSync = (fn) => { setTasks((prev) => { const next = typeof fn === "function" ? fn(prev) : fn; pushUpdate({ tasks: next }); return next; }); };
+  const setSectionOrderAndSync = (fn) => { setSectionOrder((prev) => { const next = typeof fn === "function" ? fn(prev) : fn; pushUpdate({ sectionOrder: next }); return next; }); };
+  const setCheckedAndSync = (fn) => { setChecked((prev) => { const next = typeof fn === "function" ? fn(prev) : fn; pushUpdate({ checked: next }); return next; }); };
+
+  const due = useMemo(() => (dueDate ? new Date(dueDate + "T00:00:00") : null), [dueDate]);
+  const enriched = useMemo(() => {
+    if (!due) return [];
+    return tasks.map((t) => { const deadline = addWeeks(due, t.weeksBefore); const done = !!checked[t.id]; return { ...t, deadline, done, status: getStatus(deadline, done) }; });
+  }, [due, tasks, checked]);
+  const sections = useMemo(() => {
+    const map = new Map();
+    sectionOrder.forEach((s) => map.set(s, []));
+    enriched.forEach((t) => { if (filterCat !== "all" && t.category !== filterCat) return; if (hideCompleted && t.done) return; if (!map.has(t.section)) map.set(t.section, []); map.get(t.section).push(t); });
+    return map;
+  }, [enriched, sectionOrder, filterCat, hideCompleted]);
+  const stats = useMemo(() => { const s = { total: enriched.length, done: 0, overdue: 0, urgent: 0 }; enriched.forEach((t) => { if (t.done) s.done++; else if (t.status === "overdue") s.overdue++; else if (t.status === "urgent") s.urgent++; }); return s; }, [enriched]);
+
+  const toggle = (id) => setCheckedAndSync((p) => ({ ...p, [id]: !p[id] }));
+  const progress = stats.total ? (stats.done / stats.total) * 100 : 0;
+
+  const handleAddTask = () => {
+    if (!newTask.task.trim()) return;
+    setTasksAndSync((prev) => [...prev, { id: genId(), section: addTaskSection, task: newTask.task.trim(), weeksBefore: Number(newTask.weeksBefore), notes: newTask.notes.trim(), category: newTask.category }]);
+    setNewTask({ task: "", weeksBefore: 0, notes: "", category: "life" }); setAddTaskOpen(false);
+  };
+  const handleDeleteTask = (id) => { setTasksAndSync((prev) => prev.filter((t) => t.id !== id)); setCheckedAndSync((prev) => { const c = { ...prev }; delete c[id]; return c; }); setConfirmDelete(null); };
+  const handleAddSection = () => {
+    const name = newSectionName.trim(); if (!name || sectionOrder.includes(name)) return;
+    const w = Number(newSectionWeeks); let idx = sectionOrder.length;
+    for (let i = 0; i < sectionOrder.length; i++) { const ft = tasks.find((t) => t.section === sectionOrder[i]); if (ft && ft.weeksBefore > w) { idx = i; break; } }
+    setSectionOrderAndSync((prev) => [...prev.slice(0, idx), name, ...prev.slice(idx)]); setNewSectionName(""); setNewSectionWeeks(0); setAddSectionOpen(false);
+  };
+  const handleDeleteSection = (name) => { setTasksAndSync((prev) => prev.filter((t) => t.section !== name)); setSectionOrderAndSync((prev) => prev.filter((s) => s !== name)); setConfirmDelete(null); };
+  const handleReset = () => { setTasksAndSync(DEFAULT_TASKS); setSectionOrderAndSync(SECTION_ORDER_DEFAULT); setCheckedAndSync({}); };
+  const handleDisconnect = () => { localStorage.removeItem("baby-checklist-session"); window.location.reload(); };
+  const handleCopyCode = () => { navigator.clipboard.writeText(sessionCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => {}); };
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif", maxWidth: 780, margin: "0 auto", padding: "24px 16px", color: "#1a1a2e" }}>
+      {/* Top bar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className={"sync-dot " + (synced ? "live" : "off")} />
+          <button onClick={handleCopyCode} style={{ fontSize: 13, fontWeight: 700, color: "#6c5ce7", background: "#f0edff", border: "none", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }} title="Cliquer pour copier">
+            {copied ? "✓ Copié !" : sessionCode}
+          </button>
+          <button onClick={handleDisconnect} style={{ fontSize: 11, color: "#999", background: "none", border: "1px solid #ddd", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>Quitter</button>
+        </div>
+        <a href="index.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇬🇧 English</a>
+      </div>
+
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ fontSize: 42, marginBottom: 4 }}>👶</div>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 800, margin: "0 0 4px", letterSpacing: "-0.5px", color: "#16213e" }}>Checklist Prépa Bébé</h1>
+        <p style={{ fontSize: 13, color: "#7f8c8d", margin: 0, fontWeight: 500 }}>Édition Allemagne — synchronisée en temps réel · partagez votre code pour collaborer</p>
+      </div>
+
+      <div style={{ background: "linear-gradient(135deg, #16213e 0%, #1a1a2e 100%)", borderRadius: 16, padding: "24px 28px", marginBottom: 24, color: "#fff", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <label style={{ display: "block", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, opacity: 0.7, marginBottom: 8, fontWeight: 700 }}>Date prévue d'accouchement (DPA)</label>
+          <input type="date" value={dueDate} onChange={(e) => setDueDateAndSync(e.target.value)}
+            style={{ fontSize: 20, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", borderRadius: 10, border: "2px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.1)", color: "#fff", outline: "none", width: "100%", boxSizing: "border-box" }} />
+        </div>
+        {due && (
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {[
+              { label: "Semaines restantes", val: Math.max(0, weeksUntil(new Date(), due)), accent: "#74b9ff" },
+              { label: "Mutterschutz", val: formatDate(addWeeks(due, -6)), accent: "#a29bfe" },
+              { label: "Sac maternité", val: formatDate(addWeeks(due, -5)), accent: "#fd79a8" },
+            ].map((m, i) => (
+              <div key={i} style={{ textAlign: "center", minWidth: 90 }}>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, opacity: 0.6, marginBottom: 4, fontWeight: 600 }}>{m.label}</div>
+                <div style={{ fontSize: typeof m.val === "number" ? 28 : 14, fontWeight: 700, color: m.accent }}>{m.val}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!due && <div style={{ textAlign: "center", padding: 60, color: "#aaa", fontSize: 15 }}><div style={{ fontSize: 48, marginBottom: 12 }}>📅</div>Entrez votre date de terme ci-dessus pour générer votre planning personnalisé</div>}
+
+      {due && (
+        <>
+          <div style={{ background: "#fff", borderRadius: 14, padding: "18px 22px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #eee" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>Progression</span>
+              <span style={{ fontSize: 13, color: "#888" }}>{stats.done}/{stats.total} tâches</span>
+            </div>
+            <div style={{ background: "#f0f0f0", borderRadius: 20, height: 10, overflow: "hidden" }}>
+              <div style={{ width: progress + "%", height: "100%", background: progress === 100 ? "#43a047" : "linear-gradient(90deg, #6c5ce7, #a29bfe)", borderRadius: 20, transition: "width 0.4s ease" }} />
+            </div>
+            <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+              {stats.overdue > 0 && <span style={{ fontSize: 12, color: "#d32f2f", fontWeight: 600 }}>⚠ {stats.overdue} en retard</span>}
+              {stats.urgent > 0 && <span style={{ fontSize: 12, color: "#f57f17", fontWeight: 600 }}>🔔 {stats.urgent} bientôt</span>}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: 1 }}>Filtrer :</span>
+            {[{ key: "all", label: "Tout" }].concat(Object.entries(CATEGORY_META).map(function([k, v]) { return { key: k, label: v.label }; })).map((f) => (
+              <button key={f.key} onClick={() => setFilterCat(f.key)}
+                style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, border: filterCat === f.key ? "2px solid #6c5ce7" : "1px solid #ddd", background: filterCat === f.key ? "#6c5ce7" : "#fff", color: filterCat === f.key ? "#fff" : "#555", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{f.label}</button>
+            ))}
+            <label style={{ marginLeft: "auto", fontSize: 12, color: "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              <input type="checkbox" checked={hideCompleted} onChange={() => setHideCompleted(!hideCompleted)} /> Masquer terminés
+            </label>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+            <button onClick={() => setAddSectionOpen(true)} style={{ ...btnPrimary, fontSize: 12, padding: "8px 16px", background: "#16213e" }}>+ Ajouter une section</button>
+            <button onClick={handleReset} style={{ ...btnGhost, fontSize: 12, padding: "8px 16px" }}>↻ Réinitialiser</button>
+          </div>
+
+          {sectionOrder.map((section) => {
+            const sTasks = sections.get(section) || [];
+            if (filterCat !== "all" && sTasks.length === 0) return null;
+            if (hideCompleted && sTasks.length === 0 && tasks.filter(t => t.section === section).every(t => checked[t.id])) return null;
+            return (
+              <div key={section} style={{ marginBottom: 28 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, borderBottom: "2px solid #16213e", paddingBottom: 6 }}>
+                  <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, fontWeight: 700, margin: 0, color: "#16213e", flex: 1 }}>{section}</h2>
+                  <button onClick={() => { setAddTaskSection(section); setNewTask({ task: "", weeksBefore: (tasks.find(t => t.section === section) || {}).weeksBefore || 0, notes: "", category: "life" }); setAddTaskOpen(true); }}
+                    style={{ background: "none", border: "1.5px solid #6c5ce7", color: "#6c5ce7", borderRadius: 8, padding: "3px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>+ Tâche</button>
+                  <button onClick={() => setConfirmDelete({ type: "section", name: section })}
+                    style={{ background: "none", border: "1.5px solid #e74c3c", color: "#e74c3c", borderRadius: 8, padding: "3px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>✕ Section</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {sTasks.map((t) => {
+                    const st = STATUS_STYLES[t.status]; const cat = CATEGORY_META[t.category];
+                    return (
+                      <div key={t.id} style={{ background: st.bg, border: "1.5px solid " + st.border, borderRadius: 12, padding: "14px 16px", display: "flex", gap: 14, alignItems: "flex-start", opacity: t.done ? 0.65 : 1 }}>
+                        <div onClick={() => toggle(t.id)} style={{ width: 22, height: 22, minWidth: 22, borderRadius: 6, border: t.done ? "none" : "2px solid " + st.border, background: t.done ? "#43a047" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1, cursor: "pointer" }}>
+                          {t.done && <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>✓</span>}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => toggle(t.id)}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600, fontSize: 14, textDecoration: t.done ? "line-through" : "none", color: t.done ? "#888" : "#1a1a2e" }}>{t.task}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: cat.bg, color: cat.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{cat.label}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: "#666", lineHeight: 1.4 }}>{t.notes}</div>
+                        </div>
+                        <div style={{ textAlign: "right", minWidth: 80, flexShrink: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: st.badge }}>{st.text}</div>
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{t.weeksBefore <= 0 ? formatDate(t.deadline) : "avant le " + formatDate(t.deadline)}</div>
+                        </div>
+                        <button onClick={() => setConfirmDelete({ type: "task", id: t.id, name: t.task })}
+                          style={{ background: "none", border: "none", color: "#ccc", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1, alignSelf: "center" }}
+                          onMouseEnter={(e) => { e.target.style.color = "#e74c3c"; }} onMouseLeave={(e) => { e.target.style.color = "#ccc"; }}>✕</button>
+                      </div>
+                    );
+                  })}
+                  {sTasks.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "#bbb", fontSize: 13, fontStyle: "italic" }}>Aucune tâche — cliquez sur « + Tâche » pour en ajouter</div>}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      <Modal open={addTaskOpen} onClose={() => setAddTaskOpen(false)} title={"Ajouter une tâche à « " + addTaskSection + " »"}>
+        <label style={labelStyle}>Nom de la tâche *</label>
+        <input style={inputStyle} placeholder="ex. Acheter un Tragetuch (écharpe de portage)" value={newTask.task} onChange={(e) => setNewTask({ ...newTask, task: e.target.value })}
+          onKeyDown={(e) => { if (e.key === "Enter") handleAddTask(); }} autoFocus />
+        <label style={labelStyle}>Quand (par rapport au terme)</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <input type="range" min={-30} max={20} value={newTask.weeksBefore} onChange={(e) => setNewTask({ ...newTask, weeksBefore: Number(e.target.value) })} style={{ flex: 1 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, minWidth: 100, textAlign: "right", color: Number(newTask.weeksBefore) <= 0 ? "#6c5ce7" : "#43a047" }}>
+            {Number(newTask.weeksBefore) === 0 ? "Au terme" : Number(newTask.weeksBefore) < 0 ? Math.abs(newTask.weeksBefore) + " sem. avant" : newTask.weeksBefore + " sem. après"}
+            {due && <div style={{ fontSize: 10, color: "#aaa", fontWeight: 400 }}>{formatDate(addWeeks(due, newTask.weeksBefore))}</div>}
+          </span>
+        </div>
+        <label style={labelStyle}>Catégorie</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {Object.entries(CATEGORY_META).map(([k, v]) => (
+            <button key={k} onClick={() => setNewTask({ ...newTask, category: k })}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 16, border: newTask.category === k ? "2px solid " + v.color : "1px solid #ddd", background: newTask.category === k ? v.bg : "#fff", color: newTask.category === k ? v.color : "#888", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{v.label}</button>
+          ))}
+        </div>
+        <label style={labelStyle}>Notes (optionnel)</label>
+        <input style={inputStyle} placeholder="Conseils, liens, rappels..." value={newTask.notes} onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
+          onKeyDown={(e) => { if (e.key === "Enter") handleAddTask(); }} />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+          <button onClick={() => setAddTaskOpen(false)} style={btnGhost}>Annuler</button>
+          <button onClick={handleAddTask} style={{ ...btnPrimary, opacity: newTask.task.trim() ? 1 : 0.4 }}>Ajouter</button>
+        </div>
+      </Modal>
+
+      <Modal open={addSectionOpen} onClose={() => setAddSectionOpen(false)} title="Ajouter une section">
+        <label style={labelStyle}>Nom de la section *</label>
+        <input style={inputStyle} placeholder="ex. Aménagement chambre" value={newSectionName} onChange={(e) => setNewSectionName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleAddSection(); }} autoFocus />
+        <label style={labelStyle}>Timing approximatif (pour l'ordre)</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <input type="range" min={-30} max={20} value={newSectionWeeks} onChange={(e) => setNewSectionWeeks(Number(e.target.value))} style={{ flex: 1 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, minWidth: 100, textAlign: "right", color: Number(newSectionWeeks) <= 0 ? "#6c5ce7" : "#43a047" }}>
+            {Number(newSectionWeeks) === 0 ? "Au terme" : Number(newSectionWeeks) < 0 ? Math.abs(newSectionWeeks) + " sem. avant" : newSectionWeeks + " sem. après"}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => setAddSectionOpen(false)} style={btnGhost}>Annuler</button>
+          <button onClick={handleAddSection} style={{ ...btnPrimary, opacity: newSectionName.trim() ? 1 : 0.4 }}>Ajouter</button>
+        </div>
+      </Modal>
+
+      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Confirmer la suppression">
+        {confirmDelete && confirmDelete.type === "task" && (
+          <>
+            <p style={{ fontSize: 14, color: "#555", margin: "0 0 18px", lineHeight: 1.5 }}>Supprimer la tâche <strong>« {confirmDelete.name} »</strong> ?</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmDelete(null)} style={btnGhost}>Annuler</button>
+              <button onClick={() => handleDeleteTask(confirmDelete.id)} style={btnDanger}>Supprimer</button>
+            </div>
+          </>
+        )}
+        {confirmDelete && confirmDelete.type === "section" && (
+          <>
+            <p style={{ fontSize: 14, color: "#555", margin: "0 0 18px", lineHeight: 1.5 }}>Supprimer la section <strong>« {confirmDelete.name} »</strong> et toutes ses tâches ?</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmDelete(null)} style={btnGhost}>Annuler</button>
+              <button onClick={() => handleDeleteSection(confirmDelete.name)} style={btnDanger}>Supprimer</button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <div style={{ textAlign: "center", fontSize: 11, color: "#bbb", marginTop: 32, paddingBottom: 16 }}>
+        Adapté à l'Allemagne — Standesamt, Jugendamt, Krankenkasse, U-Untersuchungen & plus · Synchronisé en temps réel via Firebase
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [sessionCode, setSessionCode] = useState(null);
+  if (!sessionCode) return <SessionLobby onJoin={setSessionCode} />;
+  return <ChecklistApp sessionCode={sessionCode} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

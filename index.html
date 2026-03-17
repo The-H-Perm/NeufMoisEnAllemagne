@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Baby Prep Checklist — Germany</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👶</text></svg>" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f5f5f7; min-height: 100vh; }
+    #root { min-height: 100vh; }
+    input[type="range"] { accent-color: #6c5ce7; }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.4s ease forwards; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .sync-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+    .sync-dot.live { background:#43a047; animation: pulse 2s infinite; }
+    .sync-dot.off { background:#e74c3c; }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.9/babel.min.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyCfRzZAUVPgRgRrqjy9xm3uuZBWogpzQIs",
+      authDomain: "baby-checklist-benji.firebaseapp.com",
+      databaseURL: "https://baby-checklist-benji-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "baby-checklist-benji",
+      storageBucket: "baby-checklist-benji.firebasestorage.app",
+      messagingSenderId: "512404948020",
+      appId: "1:512404948020:web:b2d95fb7b3bf7d5cdeb661"
+    });
+    var db = firebase.database();
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
+
+/* ── Firebase helpers ── */
+function getSessionRef(code) { return db.ref("sessions/" + code); }
+
+function generateCode() {
+  const words = ["BABY","BEBE","LOVE","STAR","LUNA","NOEL","HOPE","JOIE","DOUX","REVE"];
+  const w = words[Math.floor(Math.random() * words.length)];
+  const n = String(Math.floor(1000 + Math.random() * 9000));
+  return w + "-" + n;
+}
+
+/* ── Default data ── */
+const DEFAULT_TASKS = [
+  { id: "t1", section: "Urgent — Do Immediately", task: "Find a Hebamme (Nachsorge midwife)", weeksBefore: -24, notes: "Search hebammensuche.de — most are booked months ahead", category: "medical" },
+  { id: "t2", section: "Urgent — Do Immediately", task: "Vaterschaftsanerkennung at Standesamt", weeksBefore: -20, notes: "Required if unmarried. Bring both IDs + apostilled birth certificates", category: "legal" },
+  { id: "t3", section: "Urgent — Do Immediately", task: "Gemeinsames Sorgerecht at Jugendamt", weeksBefore: -20, notes: "Shared custody declaration — can often be done same visit as above", category: "legal" },
+  { id: "t4", section: "Urgent — Do Immediately", task: "Choose Geburtsklinik & attend Infoabend", weeksBefore: -16, notes: "Compare local hospitals; register for their info evening", category: "medical" },
+  { id: "t5", section: "Urgent — Do Immediately", task: "Register for Geburtsvorbereitungskurs", weeksBefore: -18, notes: "Covered by insurance for mother; partner pays ~80–120€", category: "medical" },
+  { id: "t6", section: "Urgent — Do Immediately", task: "Find a Kinderarzt (pediatrician)", weeksBefore: -14, notes: "Book a Kennenlerntermin; popular ones fill fast", category: "medical" },
+  { id: "t7", section: "Admin & Insurance", task: "Notify employer about Elternzeit (7-week notice)", weeksBefore: -10, notes: "Written declaration required; decide how to split months with partner", category: "work" },
+  { id: "t8", section: "Admin & Insurance", task: "Research & calculate Elterngeld", weeksBefore: -12, notes: "Use BMFSFJ Elterngeldrechner; decide Basiselterngeld vs. ElterngeldPlus", category: "financial" },
+  { id: "t9", section: "Admin & Insurance", task: "Clarify Familienversicherung with Krankenkasse", weeksBefore: -12, notes: "Baby joins one parent's insurance from birth", category: "financial" },
+  { id: "t10", section: "Admin & Insurance", task: "Check Mutterschaftsgeld eligibility", weeksBefore: -12, notes: "If mother is employed: Krankenkasse + employer top-up during Mutterschutz", category: "financial" },
+  { id: "t11", section: "Admin & Insurance", task: "Gather & apostille foreign birth certificates", weeksBefore: -14, notes: "If non-German: order from home country civil registry; allow weeks for processing", category: "legal" },
+  { id: "t12", section: "Gear & Home Prep", task: "Buy stroller + car seat (Babyschale)", weeksBefore: -8, notes: "Check compatibility; practice installing the car seat", category: "gear" },
+  { id: "t13", section: "Gear & Home Prep", task: "Set up Wickelplatz (changing station)", weeksBefore: -6, notes: "Wickelkommode or Aufsatz + Wärmelampe + supplies", category: "gear" },
+  { id: "t14", section: "Gear & Home Prep", task: "Set up sleeping area", weeksBefore: -6, notes: "Beistellbett or crib with firm mattress + Schlafsack (no blankets per SIDS guidelines)", category: "gear" },
+  { id: "t15", section: "Gear & Home Prep", task: "Stock diapers (size 1 + 2) & wipes", weeksBefore: -5, notes: "Newborns use 8–12 diapers/day", category: "gear" },
+  { id: "t16", section: "Gear & Home Prep", task: "Baby clothes: sizes 50, 56, 62", weeksBefore: -6, notes: "Bodys, Strampler, Mützchen, Socken — don't overbuy size 50", category: "gear" },
+  { id: "t17", section: "Gear & Home Prep", task: "Pack hospital bag (Kliniktasche)", weeksBefore: -5, notes: "Mutterpass, IDs, baby outfit, Stillkissen, snacks. Pack by week 36", category: "gear" },
+  { id: "t18", section: "Gear & Home Prep", task: "Install car seat in vehicle", weeksBefore: -4, notes: "Practice before the big day", category: "gear" },
+  { id: "t19", section: "Final Prep", task: "Freeze meals / meal prep", weeksBefore: -3, notes: "You'll barely cook for weeks — stock the freezer", category: "life" },
+  { id: "t20", section: "Final Prep", task: "Finalize baby name", weeksBefore: -2, notes: "Needed for Geburtsurkunde — Standesamt can reject names in Germany", category: "legal" },
+  { id: "t21", section: "Final Prep", task: "Pre-register birth at Standesamt if possible", weeksBefore: -2, notes: "Some Standesämter allow Voranmeldung with all documents", category: "legal" },
+  { id: "t22", section: "Final Prep", task: "Confirm Hebamme postnatal schedule", weeksBefore: -2, notes: "She'll visit at home starting day 1–2 after hospital discharge", category: "medical" },
+  { id: "t23", section: "Final Prep", task: "Work handover & coverage plan", weeksBefore: -2, notes: "Ensure colleagues can cover during your absence", category: "work" },
+  { id: "t24", section: "First Days (Hospital)", task: "U1 examination", weeksBefore: 0, notes: "Done immediately after birth by hospital pediatrician", category: "medical" },
+  { id: "t25", section: "First Days (Hospital)", task: "Initiate Geburtsurkunde via hospital", weeksBefore: 0, notes: "Hospital sends Geburtsanzeige to Standesamt", category: "legal" },
+  { id: "t26", section: "First 2 Weeks", task: "Collect Geburtsurkunde (get multiple copies!)", weeksBefore: 1, notes: "You'll need copies for: Elterngeld, Kindergeld, insurance, consulate", category: "legal" },
+  { id: "t27", section: "First 2 Weeks", task: "U2 examination", weeksBefore: 1, notes: "Day 3–10: metabolic screening + Hörscreening", category: "medical" },
+  { id: "t28", section: "First 2 Weeks", task: "Register baby at Einwohnermeldeamt (Anmeldung)", weeksBefore: 2, notes: "Bring Geburtsurkunde + your Meldebescheinigungen", category: "legal" },
+  { id: "t29", section: "First 2 Weeks", task: "Register baby with Krankenkasse", weeksBefore: 2, notes: "Familienversicherung application + Geburtsurkunde", category: "financial" },
+  { id: "t30", section: "First 2 Weeks", task: "Apply for Kindergeld at Familienkasse", weeksBefore: 2, notes: "Currently ~250€/month; apply online at familienkasse.de", category: "financial" },
+  { id: "t31", section: "First 3 Months", task: "Apply for Elterngeld at Elterngeldstelle", weeksBefore: 4, notes: "Retroactive max 3 months — don't delay!", category: "financial" },
+  { id: "t32", section: "First 3 Months", task: "U3 examination", weeksBefore: 5, notes: "Week 4–5 at your Kinderarzt", category: "medical" },
+  { id: "t33", section: "First 3 Months", task: "Register birth at home-country consulate", weeksBefore: 4, notes: "If non-German parent: check consulate requirements + deadlines", category: "legal" },
+  { id: "t34", section: "First 3 Months", task: "Apply for baby's passport(s)", weeksBefore: 8, notes: "Each nationality requires separate application; baby photos needed", category: "legal" },
+  { id: "t35", section: "First 3 Months", task: "Confirm Kita waitlist position", weeksBefore: 8, notes: "Reconfirm interest; spots are competitive in most cities", category: "life" },
+  { id: "t36", section: "First 3 Months", task: "U4 examination", weeksBefore: 14, notes: "Month 3–4 at your Kinderarzt", category: "medical" },
+  { id: "t37", section: "First 3 Months", task: "Rückbildungskurs for mother", weeksBefore: 8, notes: "~6–8 weeks postpartum; Kassenleistung — book early", category: "medical" },
+];
+
+const SECTION_ORDER_DEFAULT = [
+  "Urgent — Do Immediately", "Admin & Insurance", "Gear & Home Prep",
+  "Final Prep", "First Days (Hospital)", "First 2 Weeks", "First 3 Months",
+];
+
+const CATEGORY_META = {
+  medical: { label: "Medical", color: "#e74c3c", bg: "#fdf0ef" },
+  legal: { label: "Legal / Admin", color: "#8e44ad", bg: "#f5eef8" },
+  financial: { label: "Financial", color: "#e67e22", bg: "#fef5e7" },
+  gear: { label: "Gear & Home", color: "#2980b9", bg: "#eaf2f8" },
+  work: { label: "Work", color: "#16a085", bg: "#e8f8f5" },
+  life: { label: "Life / Other", color: "#7f8c8d", bg: "#f2f3f4" },
+};
+
+const addWeeks = (date, weeks) => { const d = new Date(date); d.setDate(d.getDate() + weeks * 7); return d; };
+const formatDate = (d) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const weeksUntil = (from, to) => Math.round((to - from) / (1000 * 60 * 60 * 24 * 7));
+function getStatus(deadline, done) {
+  if (done) return "done";
+  const diff = (deadline - new Date()) / (1000 * 60 * 60 * 24);
+  if (diff < 0) return "overdue";
+  if (diff < 14) return "urgent";
+  if (diff < 42) return "upcoming";
+  return "future";
+}
+
+const STATUS_STYLES = {
+  done: { bg: "#e8f5e9", border: "#66bb6a", badge: "#43a047", text: "Done" },
+  overdue: { bg: "#ffebee", border: "#ef5350", badge: "#d32f2f", text: "Overdue" },
+  urgent: { bg: "#fff8e1", border: "#ffb300", badge: "#f57f17", text: "Soon" },
+  upcoming: { bg: "#e3f2fd", border: "#42a5f5", badge: "#1565c0", text: "Upcoming" },
+  future: { bg: "#fafafa", border: "#e0e0e0", badge: "#9e9e9e", text: "Later" },
+};
+
+let _idC = 100;
+const genId = () => "t" + Date.now() + "_" + (++_idC);
+
+function Modal({ open, onClose, title, children }) {
+  if (!open) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(3px)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: "28px 28px 20px", width: "92%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#16213e", fontFamily: "'Playfair Display', serif" }}>{title}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#aaa", lineHeight: 1 }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = { width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #ddd", fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none", marginBottom: 12 };
+const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#888", marginBottom: 5 };
+const btnPrimary = { padding: "10px 22px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: "#6c5ce7", color: "#fff" };
+const btnDanger = { ...btnPrimary, background: "#e74c3c" };
+const btnGhost = { ...btnPrimary, background: "transparent", color: "#888", border: "1.5px solid #ddd" };
+
+/* ══════════════════════════════════════
+   SESSION LOBBY
+   ══════════════════════════════════════ */
+function SessionLobby({ onJoin }) {
+  const [mode, setMode] = useState(null); // null | 'create' | 'join'
+  const [joinCode, setJoinCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // Check for saved session
+  useEffect(() => {
+    const saved = localStorage.getItem("baby-checklist-session");
+    if (saved) {
+      setLoading(true);
+      const ref = getSessionRef(saved);
+      ref.once("value").then((snap) => {
+        if (snap.exists()) { onJoin(saved); }
+        else { localStorage.removeItem("baby-checklist-session"); setLoading(false); }
+      }).catch(() => { setLoading(false); });
+    }
+  }, []);
+
+  const handleCreate = async () => {
+    setLoading(true);
+    const code = generateCode();
+    const ref = getSessionRef(code);
+    await ref.set({
+      dueDate: "",
+      tasks: DEFAULT_TASKS,
+      sectionOrder: SECTION_ORDER_DEFAULT,
+      checked: {},
+      createdAt: Date.now(),
+    });
+    localStorage.setItem("baby-checklist-session", code);
+    onJoin(code);
+  };
+
+  const handleJoin = async () => {
+    if (!joinCode.trim()) return;
+    setError("");
+    setLoading(true);
+    const code = joinCode.trim().toUpperCase();
+    const ref = getSessionRef(code);
+    const snap = await ref.once("value");
+    if (snap.exists()) {
+      localStorage.setItem("baby-checklist-session", code);
+      onJoin(code);
+    } else {
+      setError("Session not found. Check the code and try again.");
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", color: "#16213e" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>👶</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Connecting...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif", maxWidth: 440, margin: "0 auto", padding: "60px 20px", color: "#1a1a2e" }}>
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ fontSize: 56, marginBottom: 8 }}>👶</div>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 800, margin: "0 0 6px", color: "#16213e" }}>Baby Prep Checklist</h1>
+        <p style={{ fontSize: 13, color: "#7f8c8d", fontWeight: 500 }}>Germany Edition — synced in real-time between devices</p>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <a href="fr.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇫🇷 Français</a>
+      </div>
+
+      {!mode && (
+        <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <button onClick={() => handleCreate()}
+            style={{ ...btnPrimary, padding: "16px 24px", fontSize: 16, background: "linear-gradient(135deg, #6c5ce7, #a29bfe)", borderRadius: 14, width: "100%" }}>
+            ✨ Create a new session
+          </button>
+          <button onClick={() => setMode("join")}
+            style={{ ...btnGhost, padding: "16px 24px", fontSize: 16, borderRadius: 14, width: "100%" }}>
+            🔗 Join an existing session
+          </button>
+        </div>
+      )}
+
+      {mode === "join" && (
+        <div className="fade-in">
+          <label style={labelStyle}>Session code</label>
+          <input style={{ ...inputStyle, fontSize: 22, textAlign: "center", letterSpacing: 3, fontWeight: 700, textTransform: "uppercase" }}
+            placeholder="BABY-1234" value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }}
+            autoFocus />
+          {error && <p style={{ color: "#e74c3c", fontSize: 13, marginBottom: 12, fontWeight: 600 }}>{error}</p>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => { setMode(null); setError(""); }} style={{ ...btnGhost, flex: 1 }}>Back</button>
+            <button onClick={handleJoin} style={{ ...btnPrimary, flex: 1, opacity: joinCode.trim() ? 1 : 0.4 }}>Join</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
+   MAIN CHECKLIST APP
+   ══════════════════════════════════════ */
+function ChecklistApp({ sessionCode }) {
+  const [dueDate, setDueDate] = useState("");
+  const [tasks, setTasks] = useState(DEFAULT_TASKS);
+  const [sectionOrder, setSectionOrder] = useState(SECTION_ORDER_DEFAULT);
+  const [checked, setChecked] = useState({});
+  const [filterCat, setFilterCat] = useState("all");
+  const [hideCompleted, setHideCompleted] = useState(false);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [addTaskSection, setAddTaskSection] = useState("");
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [newTask, setNewTask] = useState({ task: "", weeksBefore: 0, notes: "", category: "life" });
+  const [newSectionName, setNewSectionName] = useState("");
+  const [newSectionWeeks, setNewSectionWeeks] = useState(0);
+  const [synced, setSynced] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const isRemoteUpdate = useRef(false);
+  const sessionRef = useRef(null);
+
+  // Listen to Firebase
+  useEffect(() => {
+    const ref = getSessionRef(sessionCode);
+    sessionRef.current = ref;
+    const unsub = ref.on("value", (snap) => {
+      const data = snap.val();
+      if (!data) return;
+      isRemoteUpdate.current = true;
+      if (data.dueDate !== undefined) setDueDate(data.dueDate || "");
+      if (data.tasks) setTasks(data.tasks);
+      if (data.sectionOrder) setSectionOrder(data.sectionOrder);
+      if (data.checked) setChecked(data.checked);
+      else setChecked({});
+      setSynced(true);
+      setTimeout(() => { isRemoteUpdate.current = false; }, 50);
+    });
+    return () => ref.off("value", unsub);
+  }, [sessionCode]);
+
+  // Push to Firebase on local changes
+  const pushUpdate = useCallback((updates) => {
+    if (isRemoteUpdate.current || !sessionRef.current) return;
+    sessionRef.current.update(updates);
+  }, []);
+
+  const setDueDateAndSync = (v) => { setDueDate(v); pushUpdate({ dueDate: v }); };
+  const setTasksAndSync = (fn) => {
+    setTasks((prev) => {
+      const next = typeof fn === "function" ? fn(prev) : fn;
+      pushUpdate({ tasks: next });
+      return next;
+    });
+  };
+  const setSectionOrderAndSync = (fn) => {
+    setSectionOrder((prev) => {
+      const next = typeof fn === "function" ? fn(prev) : fn;
+      pushUpdate({ sectionOrder: next });
+      return next;
+    });
+  };
+  const setCheckedAndSync = (fn) => {
+    setChecked((prev) => {
+      const next = typeof fn === "function" ? fn(prev) : fn;
+      pushUpdate({ checked: next });
+      return next;
+    });
+  };
+
+  const due = useMemo(() => (dueDate ? new Date(dueDate + "T00:00:00") : null), [dueDate]);
+
+  const enriched = useMemo(() => {
+    if (!due) return [];
+    return tasks.map((t) => {
+      const deadline = addWeeks(due, t.weeksBefore);
+      const done = !!checked[t.id];
+      return { ...t, deadline, done, status: getStatus(deadline, done) };
+    });
+  }, [due, tasks, checked]);
+
+  const sections = useMemo(() => {
+    const map = new Map();
+    sectionOrder.forEach((s) => map.set(s, []));
+    enriched.forEach((t) => {
+      if (filterCat !== "all" && t.category !== filterCat) return;
+      if (hideCompleted && t.done) return;
+      if (!map.has(t.section)) map.set(t.section, []);
+      map.get(t.section).push(t);
+    });
+    return map;
+  }, [enriched, sectionOrder, filterCat, hideCompleted]);
+
+  const stats = useMemo(() => {
+    const s = { total: enriched.length, done: 0, overdue: 0, urgent: 0 };
+    enriched.forEach((t) => { if (t.done) s.done++; else if (t.status === "overdue") s.overdue++; else if (t.status === "urgent") s.urgent++; });
+    return s;
+  }, [enriched]);
+
+  const toggle = (id) => setCheckedAndSync((p) => ({ ...p, [id]: !p[id] }));
+  const progress = stats.total ? (stats.done / stats.total) * 100 : 0;
+
+  const handleAddTask = () => {
+    if (!newTask.task.trim()) return;
+    setTasksAndSync((prev) => [...prev, { id: genId(), section: addTaskSection, task: newTask.task.trim(), weeksBefore: Number(newTask.weeksBefore), notes: newTask.notes.trim(), category: newTask.category }]);
+    setNewTask({ task: "", weeksBefore: 0, notes: "", category: "life" });
+    setAddTaskOpen(false);
+  };
+
+  const handleDeleteTask = (id) => {
+    setTasksAndSync((prev) => prev.filter((t) => t.id !== id));
+    setCheckedAndSync((prev) => { const c = { ...prev }; delete c[id]; return c; });
+    setConfirmDelete(null);
+  };
+
+  const handleAddSection = () => {
+    const name = newSectionName.trim();
+    if (!name || sectionOrder.includes(name)) return;
+    const w = Number(newSectionWeeks);
+    let idx = sectionOrder.length;
+    for (let i = 0; i < sectionOrder.length; i++) {
+      const ft = tasks.find((t) => t.section === sectionOrder[i]);
+      if (ft && ft.weeksBefore > w) { idx = i; break; }
+    }
+    setSectionOrderAndSync((prev) => [...prev.slice(0, idx), name, ...prev.slice(idx)]);
+    setNewSectionName("");
+    setNewSectionWeeks(0);
+    setAddSectionOpen(false);
+  };
+
+  const handleDeleteSection = (name) => {
+    setTasksAndSync((prev) => prev.filter((t) => t.section !== name));
+    setSectionOrderAndSync((prev) => prev.filter((s) => s !== name));
+    setConfirmDelete(null);
+  };
+
+  const handleReset = () => {
+    setTasksAndSync(DEFAULT_TASKS);
+    setSectionOrderAndSync(SECTION_ORDER_DEFAULT);
+    setCheckedAndSync({});
+  };
+
+  const handleDisconnect = () => {
+    localStorage.removeItem("baby-checklist-session");
+    window.location.reload();
+  };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(sessionCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif", maxWidth: 780, margin: "0 auto", padding: "24px 16px", color: "#1a1a2e" }}>
+
+      {/* Top bar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className={"sync-dot " + (synced ? "live" : "off")} />
+          <button onClick={handleCopyCode}
+            style={{ fontSize: 13, fontWeight: 700, color: "#6c5ce7", background: "#f0edff", border: "none", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}
+            title="Click to copy">
+            {copied ? "✓ Copied!" : sessionCode}
+          </button>
+          <button onClick={handleDisconnect}
+            style={{ fontSize: 11, color: "#999", background: "none", border: "1px solid #ddd", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+            Leave
+          </button>
+        </div>
+        <a href="fr.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇫🇷 Français</a>
+      </div>
+
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ fontSize: 42, marginBottom: 4 }}>👶</div>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 800, margin: "0 0 4px", letterSpacing: "-0.5px", color: "#16213e" }}>Baby Prep Checklist</h1>
+        <p style={{ fontSize: 13, color: "#7f8c8d", margin: 0, fontWeight: 500 }}>Germany Edition — synced in real-time · share your code to collaborate</p>
+      </div>
+
+      {/* Due date */}
+      <div style={{ background: "linear-gradient(135deg, #16213e 0%, #1a1a2e 100%)", borderRadius: 16, padding: "24px 28px", marginBottom: 24, color: "#fff", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <label style={{ display: "block", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, opacity: 0.7, marginBottom: 8, fontWeight: 700 }}>Enter Due Date (ET)</label>
+          <input type="date" value={dueDate} onChange={(e) => setDueDateAndSync(e.target.value)}
+            style={{ fontSize: 20, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", borderRadius: 10, border: "2px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.1)", color: "#fff", outline: "none", width: "100%", boxSizing: "border-box" }} />
+        </div>
+        {due && (
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {[
+              { label: "Weeks to go", val: Math.max(0, weeksUntil(new Date(), due)), accent: "#74b9ff" },
+              { label: "Mutterschutz", val: formatDate(addWeeks(due, -6)), accent: "#a29bfe" },
+              { label: "Pack bag by", val: formatDate(addWeeks(due, -5)), accent: "#fd79a8" },
+            ].map((m, i) => (
+              <div key={i} style={{ textAlign: "center", minWidth: 90 }}>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, opacity: 0.6, marginBottom: 4, fontWeight: 600 }}>{m.label}</div>
+                <div style={{ fontSize: typeof m.val === "number" ? 28 : 14, fontWeight: 700, color: m.accent }}>{m.val}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!due && (
+        <div style={{ textAlign: "center", padding: 60, color: "#aaa", fontSize: 15 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📅</div>
+          Set a due date above to generate your personalized timeline
+        </div>
+      )}
+
+      {due && (
+        <>
+          {/* Progress */}
+          <div style={{ background: "#fff", borderRadius: 14, padding: "18px 22px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #eee" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>Progress</span>
+              <span style={{ fontSize: 13, color: "#888" }}>{stats.done}/{stats.total} tasks</span>
+            </div>
+            <div style={{ background: "#f0f0f0", borderRadius: 20, height: 10, overflow: "hidden" }}>
+              <div style={{ width: progress + "%", height: "100%", background: progress === 100 ? "#43a047" : "linear-gradient(90deg, #6c5ce7, #a29bfe)", borderRadius: 20, transition: "width 0.4s ease" }} />
+            </div>
+            <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+              {stats.overdue > 0 && <span style={{ fontSize: 12, color: "#d32f2f", fontWeight: 600 }}>⚠ {stats.overdue} overdue</span>}
+              {stats.urgent > 0 && <span style={{ fontSize: 12, color: "#f57f17", fontWeight: 600 }}>🔔 {stats.urgent} due soon</span>}
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: 1 }}>Filter:</span>
+            {[{ key: "all", label: "All" }].concat(Object.entries(CATEGORY_META).map(function([k, v]) { return { key: k, label: v.label }; })).map((f) => (
+              <button key={f.key} onClick={() => setFilterCat(f.key)}
+                style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, border: filterCat === f.key ? "2px solid #6c5ce7" : "1px solid #ddd", background: filterCat === f.key ? "#6c5ce7" : "#fff", color: filterCat === f.key ? "#fff" : "#555", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                {f.label}
+              </button>
+            ))}
+            <label style={{ marginLeft: "auto", fontSize: 12, color: "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              <input type="checkbox" checked={hideCompleted} onChange={() => setHideCompleted(!hideCompleted)} /> Hide done
+            </label>
+          </div>
+
+          {/* Global actions */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+            <button onClick={() => setAddSectionOpen(true)} style={{ ...btnPrimary, fontSize: 12, padding: "8px 16px", background: "#16213e" }}>+ Add Section</button>
+            <button onClick={handleReset} style={{ ...btnGhost, fontSize: 12, padding: "8px 16px" }}>↻ Reset to Default</button>
+          </div>
+
+          {/* Sections */}
+          {sectionOrder.map((section) => {
+            const sTasks = sections.get(section) || [];
+            if (filterCat !== "all" && sTasks.length === 0) return null;
+            if (hideCompleted && sTasks.length === 0 && tasks.filter(t => t.section === section).every(t => checked[t.id])) return null;
+
+            return (
+              <div key={section} style={{ marginBottom: 28 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, borderBottom: "2px solid #16213e", paddingBottom: 6 }}>
+                  <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, fontWeight: 700, margin: 0, color: "#16213e", flex: 1 }}>{section}</h2>
+                  <button onClick={() => { setAddTaskSection(section); setNewTask({ task: "", weeksBefore: (tasks.find(t => t.section === section) || {}).weeksBefore || 0, notes: "", category: "life" }); setAddTaskOpen(true); }}
+                    style={{ background: "none", border: "1.5px solid #6c5ce7", color: "#6c5ce7", borderRadius: 8, padding: "3px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>+ Task</button>
+                  <button onClick={() => setConfirmDelete({ type: "section", name: section })}
+                    style={{ background: "none", border: "1.5px solid #e74c3c", color: "#e74c3c", borderRadius: 8, padding: "3px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>✕ Section</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {sTasks.map((t) => {
+                    const st = STATUS_STYLES[t.status];
+                    const cat = CATEGORY_META[t.category];
+                    return (
+                      <div key={t.id} style={{ background: st.bg, border: "1.5px solid " + st.border, borderRadius: 12, padding: "14px 16px", display: "flex", gap: 14, alignItems: "flex-start", opacity: t.done ? 0.65 : 1 }}>
+                        <div onClick={() => toggle(t.id)}
+                          style={{ width: 22, height: 22, minWidth: 22, borderRadius: 6, border: t.done ? "none" : "2px solid " + st.border, background: t.done ? "#43a047" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1, cursor: "pointer" }}>
+                          {t.done && <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>✓</span>}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => toggle(t.id)}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600, fontSize: 14, textDecoration: t.done ? "line-through" : "none", color: t.done ? "#888" : "#1a1a2e" }}>{t.task}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: cat.bg, color: cat.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{cat.label}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: "#666", lineHeight: 1.4 }}>{t.notes}</div>
+                        </div>
+                        <div style={{ textAlign: "right", minWidth: 80, flexShrink: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: st.badge }}>{st.text}</div>
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{t.weeksBefore <= 0 ? formatDate(t.deadline) : "by " + formatDate(t.deadline)}</div>
+                        </div>
+                        <button onClick={() => setConfirmDelete({ type: "task", id: t.id, name: t.task })}
+                          style={{ background: "none", border: "none", color: "#ccc", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1, alignSelf: "center" }}
+                          onMouseEnter={(e) => { e.target.style.color = "#e74c3c"; }} onMouseLeave={(e) => { e.target.style.color = "#ccc"; }}>✕</button>
+                      </div>
+                    );
+                  })}
+                  {sTasks.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "#bbb", fontSize: 13, fontStyle: "italic" }}>No tasks — click "+ Task" to add one</div>}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {/* Modals */}
+      <Modal open={addTaskOpen} onClose={() => setAddTaskOpen(false)} title={"Add task to \"" + addTaskSection + "\""}>
+        <label style={labelStyle}>Task name *</label>
+        <input style={inputStyle} placeholder="e.g. Buy Tragetuch (baby wrap)" value={newTask.task} onChange={(e) => setNewTask({ ...newTask, task: e.target.value })}
+          onKeyDown={(e) => { if (e.key === "Enter") handleAddTask(); }} autoFocus />
+        <label style={labelStyle}>When (relative to due date)</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <input type="range" min={-30} max={20} value={newTask.weeksBefore} onChange={(e) => setNewTask({ ...newTask, weeksBefore: Number(e.target.value) })} style={{ flex: 1 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, minWidth: 100, textAlign: "right", color: Number(newTask.weeksBefore) <= 0 ? "#6c5ce7" : "#43a047" }}>
+            {Number(newTask.weeksBefore) === 0 ? "At due date" : Number(newTask.weeksBefore) < 0 ? Math.abs(newTask.weeksBefore) + "w before" : newTask.weeksBefore + "w after"}
+            {due && <div style={{ fontSize: 10, color: "#aaa", fontWeight: 400 }}>{formatDate(addWeeks(due, newTask.weeksBefore))}</div>}
+          </span>
+        </div>
+        <label style={labelStyle}>Category</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {Object.entries(CATEGORY_META).map(([k, v]) => (
+            <button key={k} onClick={() => setNewTask({ ...newTask, category: k })}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 16, border: newTask.category === k ? "2px solid " + v.color : "1px solid #ddd", background: newTask.category === k ? v.bg : "#fff", color: newTask.category === k ? v.color : "#888", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+        <label style={labelStyle}>Notes (optional)</label>
+        <input style={inputStyle} placeholder="Tips, links, reminders..." value={newTask.notes} onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
+          onKeyDown={(e) => { if (e.key === "Enter") handleAddTask(); }} />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+          <button onClick={() => setAddTaskOpen(false)} style={btnGhost}>Cancel</button>
+          <button onClick={handleAddTask} style={{ ...btnPrimary, opacity: newTask.task.trim() ? 1 : 0.4 }}>Add Task</button>
+        </div>
+      </Modal>
+
+      <Modal open={addSectionOpen} onClose={() => setAddSectionOpen(false)} title="Add new section">
+        <label style={labelStyle}>Section name *</label>
+        <input style={inputStyle} placeholder="e.g. Nursery Setup" value={newSectionName} onChange={(e) => setNewSectionName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleAddSection(); }} autoFocus />
+        <label style={labelStyle}>Approximate timing (for ordering)</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <input type="range" min={-30} max={20} value={newSectionWeeks} onChange={(e) => setNewSectionWeeks(Number(e.target.value))} style={{ flex: 1 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, minWidth: 100, textAlign: "right", color: Number(newSectionWeeks) <= 0 ? "#6c5ce7" : "#43a047" }}>
+            {Number(newSectionWeeks) === 0 ? "At due date" : Number(newSectionWeeks) < 0 ? Math.abs(newSectionWeeks) + "w before" : newSectionWeeks + "w after"}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => setAddSectionOpen(false)} style={btnGhost}>Cancel</button>
+          <button onClick={handleAddSection} style={{ ...btnPrimary, opacity: newSectionName.trim() ? 1 : 0.4 }}>Add Section</button>
+        </div>
+      </Modal>
+
+      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Confirm delete">
+        {confirmDelete && confirmDelete.type === "task" && (
+          <>
+            <p style={{ fontSize: 14, color: "#555", margin: "0 0 18px", lineHeight: 1.5 }}>Delete task <strong>"{confirmDelete.name}"</strong>?</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmDelete(null)} style={btnGhost}>Cancel</button>
+              <button onClick={() => handleDeleteTask(confirmDelete.id)} style={btnDanger}>Delete</button>
+            </div>
+          </>
+        )}
+        {confirmDelete && confirmDelete.type === "section" && (
+          <>
+            <p style={{ fontSize: 14, color: "#555", margin: "0 0 18px", lineHeight: 1.5 }}>Delete section <strong>"{confirmDelete.name}"</strong> and all its tasks?</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmDelete(null)} style={btnGhost}>Cancel</button>
+              <button onClick={() => handleDeleteSection(confirmDelete.name)} style={btnDanger}>Delete Section</button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <div style={{ textAlign: "center", fontSize: 11, color: "#bbb", marginTop: 32, paddingBottom: 16 }}>
+        Tailored for Germany — Standesamt, Jugendamt, Krankenkasse, U-Untersuchungen & more · Synced in real-time via Firebase
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
+   ROOT
+   ══════════════════════════════════════ */
+function App() {
+  const [sessionCode, setSessionCode] = useState(null);
+  if (!sessionCode) return <SessionLobby onJoin={setSessionCode} />;
+  return <ChecklistApp sessionCode={sessionCode} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
