@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Baby Clothes Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👕</text></svg>" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f5f5f7; min-height: 100vh; }
+    #root { min-height: 100vh; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.4s ease forwards; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .sync-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+    .sync-dot.live { background:#43a047; animation: pulse 2s infinite; }
+    .sync-dot.off { background:#e74c3c; }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.9/babel.min.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyCfRzZAUVPgRgRrqjy9xm3uuZBWogpzQIs",
+      authDomain: "baby-checklist-benji.firebaseapp.com",
+      databaseURL: "https://baby-checklist-benji-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "baby-checklist-benji",
+      storageBucket: "baby-checklist-benji.firebasestorage.app",
+      messagingSenderId: "512404948020",
+      appId: "1:512404948020:web:b2d95fb7b3bf7d5cdeb661"
+    });
+    var db = firebase.database();
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
+
+/* ── Firebase helpers ── */
+function getSessionRef(code) { return db.ref("sessions/" + code); }
+function getClothesRef(code) { return db.ref("sessions/" + code + "/clothes"); }
+
+/* ── Size groups ── */
+const SIZE_GROUPS = [
+  { key: "one-size", label: "One Size", sizes: "OS", ageRange: "All ages", emoji: "🧦" },
+  { key: "50", label: "Size 50", sizes: "50", ageRange: "Newborn / Frühchen", emoji: "🍼" },
+  { key: "56", label: "Size 56", sizes: "56", ageRange: "0 – 1 month", emoji: "👶" },
+  { key: "62", label: "Size 62", sizes: "62", ageRange: "1 – 3 months", emoji: "🐣" },
+  { key: "68", label: "Size 68", sizes: "68", ageRange: "3 – 6 months", emoji: "🌱" },
+  { key: "74", label: "Size 74", sizes: "74", ageRange: "6 – 9 months", emoji: "🐛" },
+  { key: "80", label: "Size 80", sizes: "80", ageRange: "9 – 12 months", emoji: "🧸" },
+];
+
+const SIZE_GROUP_MAP = {};
+SIZE_GROUPS.forEach(g => { SIZE_GROUP_MAP[g.key] = g; });
+
+/* ── Clothing types ── */
+const CLOTHING_TYPES = {
+  body: { label: "Body / Onesie", emoji: "👕", defaultTarget: 6 },
+  strampler: { label: "Strampler / Sleeper", emoji: "🩲", defaultTarget: 4 },
+  pants: { label: "Pants / Hose", emoji: "👖", defaultTarget: 3 },
+  shirt: { label: "Shirt / Top", emoji: "👚", defaultTarget: 4 },
+  jacket: { label: "Jacket / Jäckchen", emoji: "🧥", defaultTarget: 1 },
+  overall: { label: "Overall / Anzug", emoji: "🥼", defaultTarget: 1 },
+  schlafsack: { label: "Schlafsack / Sleep sack", emoji: "🛏️", defaultTarget: 2 },
+  socks: { label: "Socks / Socken", emoji: "🧦", defaultTarget: 5 },
+  hat: { label: "Hat / Mützchen", emoji: "🧢", defaultTarget: 2 },
+  mittens: { label: "Mittens / Fäustlinge", emoji: "🧤", defaultTarget: 1 },
+  bib: { label: "Bib / Lätzchen", emoji: "🍼", defaultTarget: 4 },
+  towel: { label: "Hooded towel / Kapuzenhandtuch", emoji: "🛁", defaultTarget: 2 },
+  swaddle: { label: "Swaddle / Pucktuch", emoji: "🌙", defaultTarget: 2 },
+  custom: { label: "Other", emoji: "📦", defaultTarget: 1 },
+};
+
+/* Items that are typically one-size / trans-age */
+const TRANS_AGE_TYPES = ["socks", "hat", "mittens", "bib", "towel", "swaddle"];
+
+/* ── Default wardrobe template ── */
+function buildDefaults() {
+  const items = [];
+  let id = 0;
+  const sizedTypes = ["body", "strampler", "pants", "shirt", "jacket", "overall", "schlafsack"];
+  const startSizes = ["50", "56", "62", "68"];
+
+  startSizes.forEach(sz => {
+    sizedTypes.forEach(type => {
+      const meta = CLOTHING_TYPES[type];
+      // Fewer items in size 50 (they grow out fast)
+      const target = sz === "50" ? Math.max(1, Math.ceil(meta.defaultTarget * 0.5)) : meta.defaultTarget;
+      items.push({ id: "c" + (++id), type, sizeGroup: sz, owned: 0, target, notes: "", photo: "" });
+    });
+  });
+
+  TRANS_AGE_TYPES.forEach(type => {
+    const meta = CLOTHING_TYPES[type];
+    items.push({ id: "c" + (++id), type, sizeGroup: "one-size", owned: 0, target: meta.defaultTarget, notes: "", photo: "" });
+  });
+
+  return items;
+}
+
+/* ── Shared styles ── */
+const inputStyle = { width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #ddd", fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none", marginBottom: 12 };
+const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#888", marginBottom: 5 };
+const btnPrimary = { padding: "10px 22px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: "#6c5ce7", color: "#fff" };
+const btnDanger = { ...btnPrimary, background: "#e74c3c" };
+const btnGhost = { ...btnPrimary, background: "transparent", color: "#888", border: "1.5px solid #ddd" };
+
+/* ── Modal ── */
+function Modal({ open, onClose, title, children }) {
+  if (!open) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(3px)" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: "28px 28px 20px", width: "92%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#16213e", fontFamily: "'Playfair Display', serif" }}>{title}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#aaa", lineHeight: 1 }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ── Image compressor ── */
+function compressImage(file, maxDim, quality) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+          else { w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ── Photo component ── */
+function PhotoUpload({ photo, onPhotoChange }) {
+  const fileRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const compressed = await compressImage(file, 200, 0.6);
+    onPhotoChange(compressed);
+  };
+
+  if (photo) {
+    return (
+      <div style={{ position: "relative", display: "inline-block" }}>
+        <img src={photo} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "2px solid #e0e0e0" }} />
+        <button onClick={(e) => { e.stopPropagation(); onPhotoChange(""); }}
+          style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#e74c3c", color: "#fff", border: "none", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: "none" }} />
+      <button onClick={(e) => { e.stopPropagation(); fileRef.current.click(); }}
+        style={{ width: 56, height: 56, borderRadius: 8, border: "2px dashed #ccc", background: "#fafafa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: "#bbb", flexShrink: 0 }}
+        title="Add photo">
+        📷
+      </button>
+    </>
+  );
+}
+
+/* ══════════════════════════════════════
+   SESSION LOBBY — reuses checklist session
+   ══════════════════════════════════════ */
+function SessionLobby({ onJoin }) {
+  const [joinCode, setJoinCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("baby-checklist-session");
+    if (saved) {
+      setLoading(true);
+      const ref = getSessionRef(saved);
+      ref.once("value").then(snap => {
+        if (snap.exists()) onJoin(saved);
+        else { localStorage.removeItem("baby-checklist-session"); setLoading(false); }
+      }).catch(() => setLoading(false));
+    }
+  }, []);
+
+  const handleJoin = async () => {
+    if (!joinCode.trim()) return;
+    setError("");
+    setLoading(true);
+    const code = joinCode.trim().toUpperCase();
+    const ref = getSessionRef(code);
+    const snap = await ref.once("value");
+    if (snap.exists()) {
+      localStorage.setItem("baby-checklist-session", code);
+      onJoin(code);
+    } else {
+      setError("Session not found. Create one from the main checklist first.");
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", color: "#16213e" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>👕</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Connecting...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif", maxWidth: 440, margin: "0 auto", padding: "60px 20px", color: "#1a1a2e" }}>
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ fontSize: 56, marginBottom: 8 }}>👕</div>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 800, margin: "0 0 6px", color: "#16213e" }}>Baby Clothes Tracker</h1>
+        <p style={{ fontSize: 13, color: "#7f8c8d", fontWeight: 500 }}>Companion tool — uses your checklist session</p>
+      </div>
+
+      <div className="fade-in">
+        <label style={labelStyle}>Enter your checklist session code</label>
+        <input style={{ ...inputStyle, fontSize: 22, textAlign: "center", letterSpacing: 3, fontWeight: 700, textTransform: "uppercase" }}
+          placeholder="BABY-1234" value={joinCode}
+          onChange={e => setJoinCode(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") handleJoin(); }}
+          autoFocus />
+        {error && <p style={{ color: "#e74c3c", fontSize: 13, marginBottom: 12, fontWeight: 600 }}>{error}</p>}
+        <button onClick={handleJoin} style={{ ...btnPrimary, width: "100%", padding: "16px 24px", fontSize: 16, background: "linear-gradient(135deg, #6c5ce7, #a29bfe)", borderRadius: 14 }}>
+          Connect
+        </button>
+        <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: "#999" }}>
+          <a href="index.html" style={{ color: "#6c5ce7", fontWeight: 600, textDecoration: "none" }}>← Back to main checklist</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
+   CLOTHES TRACKER MAIN APP
+   ══════════════════════════════════════ */
+function ClothesApp({ sessionCode }) {
+  const [items, setItems] = useState([]);
+  const [synced, setSynced] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [filterSize, setFilterSize] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all"); // all | need | partial | complete
+  const [viewMode, setViewMode] = useState("cards"); // cards | table
+  const [addOpen, setAddOpen] = useState(false);
+  const [photoModal, setPhotoModal] = useState(null); // item id for full-screen photo
+  const [editNotes, setEditNotes] = useState(null); // { id, notes }
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  const [newItem, setNewItem] = useState({ type: "body", sizeGroup: "56", target: 3, notes: "", customLabel: "" });
+
+  const isRemoteUpdate = useRef(false);
+  const clothesRef = useRef(null);
+  const initialised = useRef(false);
+
+  // Listen to Firebase
+  useEffect(() => {
+    const ref = getClothesRef(sessionCode);
+    clothesRef.current = ref;
+    const unsub = ref.on("value", snap => {
+      const data = snap.val();
+      isRemoteUpdate.current = true;
+      if (data) {
+        // data could be object or array from Firebase
+        const arr = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
+        setItems(arr);
+        initialised.current = true;
+      } else if (!initialised.current) {
+        // First time: seed with defaults
+        const defaults = buildDefaults();
+        ref.set(defaults);
+        setItems(defaults);
+        initialised.current = true;
+      } else {
+        setItems([]);
+      }
+      setSynced(true);
+      setTimeout(() => { isRemoteUpdate.current = false; }, 50);
+    });
+    return () => ref.off("value", unsub);
+  }, [sessionCode]);
+
+  const pushItems = useCallback((newItems) => {
+    if (isRemoteUpdate.current || !clothesRef.current) return;
+    clothesRef.current.set(newItems);
+  }, []);
+
+  const updateItem = (id, updates) => {
+    setItems(prev => {
+      const next = prev.map(it => it.id === id ? { ...it, ...updates } : it);
+      pushItems(next);
+      return next;
+    });
+  };
+
+  const addItem = (item) => {
+    setItems(prev => {
+      const next = [...prev, item];
+      pushItems(next);
+      return next;
+    });
+  };
+
+  const removeItem = (id) => {
+    setItems(prev => {
+      const next = prev.filter(it => it.id !== id);
+      pushItems(next);
+      return next;
+    });
+  };
+
+  const handleReset = () => {
+    const defaults = buildDefaults();
+    setItems(defaults);
+    pushItems(defaults);
+    setConfirmReset(false);
+  };
+
+  const handleAddItem = () => {
+    const type = newItem.type;
+    const meta = CLOTHING_TYPES[type];
+    const item = {
+      id: "c" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      type,
+      sizeGroup: TRANS_AGE_TYPES.includes(type) ? "one-size" : newItem.sizeGroup,
+      owned: 0,
+      target: Number(newItem.target) || meta.defaultTarget,
+      notes: newItem.notes,
+      photo: "",
+      customLabel: type === "custom" ? newItem.customLabel : "",
+    };
+    addItem(item);
+    setNewItem({ type: "body", sizeGroup: "56", target: 3, notes: "", customLabel: "" });
+    setAddOpen(false);
+  };
+
+  // Stats
+  const stats = useMemo(() => {
+    const s = { total: items.length, complete: 0, partial: 0, need: 0, totalOwned: 0, totalTarget: 0 };
+    items.forEach(it => {
+      s.totalOwned += (it.owned || 0);
+      s.totalTarget += (it.target || 0);
+      if (it.owned >= it.target && it.target > 0) s.complete++;
+      else if (it.owned > 0) s.partial++;
+      else s.need++;
+    });
+    return s;
+  }, [items]);
+
+  // Filter
+  const filtered = useMemo(() => {
+    return items.filter(it => {
+      if (filterSize !== "all" && it.sizeGroup !== filterSize) return false;
+      if (filterStatus === "need" && it.owned > 0) return false;
+      if (filterStatus === "partial" && (it.owned === 0 || it.owned >= it.target)) return false;
+      if (filterStatus === "complete" && it.owned < it.target) return false;
+      return true;
+    });
+  }, [items, filterSize, filterStatus]);
+
+  // Group by size
+  const groupedBySize = useMemo(() => {
+    const map = new Map();
+    SIZE_GROUPS.forEach(g => map.set(g.key, []));
+    filtered.forEach(it => {
+      if (!map.has(it.sizeGroup)) map.set(it.sizeGroup, []);
+      map.get(it.sizeGroup).push(it);
+    });
+    return map;
+  }, [filtered]);
+
+  const getItemStatus = (it) => {
+    if (it.owned >= it.target && it.target > 0) return "complete";
+    if (it.owned > 0) return "partial";
+    return "need";
+  };
+
+  const STATUS_COLORS = {
+    complete: { bg: "#e8f5e9", border: "#66bb6a", badge: "#43a047", text: "✓ Complete", dot: "#43a047" },
+    partial: { bg: "#fff8e1", border: "#ffb300", badge: "#f57f17", text: "Partial", dot: "#ffb300" },
+    need: { bg: "#ffebee", border: "#ef5350", badge: "#d32f2f", text: "Need to buy", dot: "#ef5350" },
+  };
+
+  const getItemLabel = (it) => {
+    const meta = CLOTHING_TYPES[it.type];
+    if (it.type === "custom" && it.customLabel) return it.customLabel;
+    return meta ? meta.label : it.type;
+  };
+  const getItemEmoji = (it) => {
+    const meta = CLOTHING_TYPES[it.type];
+    return meta ? meta.emoji : "📦";
+  };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(sessionCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
+
+  const handleDisconnect = () => {
+    localStorage.removeItem("baby-checklist-session");
+    window.location.reload();
+  };
+
+  const progress = stats.totalTarget > 0 ? (stats.totalOwned / stats.totalTarget) * 100 : 0;
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif", maxWidth: 820, margin: "0 auto", padding: "24px 16px", color: "#1a1a2e" }}>
+
+      {/* Top bar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className={"sync-dot " + (synced ? "live" : "off")} />
+          <button onClick={handleCopyCode}
+            style={{ fontSize: 13, fontWeight: 700, color: "#6c5ce7", background: "#f0edff", border: "none", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}
+            title="Click to copy">
+            {copied ? "✓ Copied!" : sessionCode}
+          </button>
+          <button onClick={handleDisconnect}
+            style={{ fontSize: 11, color: "#999", background: "none", border: "1px solid #ddd", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+            Leave
+          </button>
+        </div>
+        <a href="index.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>📋 Checklist</a>
+      </div>
+
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ fontSize: 42, marginBottom: 4 }}>👕</div>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 800, margin: "0 0 4px", letterSpacing: "-0.5px", color: "#16213e" }}>Baby Clothes Tracker</h1>
+        <p style={{ fontSize: 13, color: "#7f8c8d", margin: 0, fontWeight: 500 }}>Track what you have, what you need, and never double-buy</p>
+      </div>
+
+      {/* Progress overview */}
+      <div style={{ background: "linear-gradient(135deg, #16213e 0%, #1a1a2e 100%)", borderRadius: 16, padding: "24px 28px", marginBottom: 24, color: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Wardrobe Progress</span>
+          <span style={{ fontSize: 13, opacity: 0.7 }}>{stats.totalOwned} / {stats.totalTarget} items</span>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, height: 10, overflow: "hidden", marginBottom: 16 }}>
+          <div style={{ width: Math.min(100, progress) + "%", height: "100%", background: progress >= 100 ? "#43a047" : "linear-gradient(90deg, #6c5ce7, #a29bfe)", borderRadius: 20, transition: "width 0.4s ease" }} />
+        </div>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Complete", val: stats.complete, color: "#66bb6a" },
+            { label: "Partial", val: stats.partial, color: "#ffb300" },
+            { label: "To buy", val: stats.need, color: "#ef5350" },
+          ].map((m, i) => (
+            <div key={i} style={{ textAlign: "center", minWidth: 60 }}>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, opacity: 0.6, marginBottom: 4, fontWeight: 600 }}>{m.label}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: m.color }}>{m.val}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Filters & actions */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: 1 }}>Size:</span>
+        {[{ key: "all", label: "All" }].concat(SIZE_GROUPS.map(g => ({ key: g.key, label: g.key === "one-size" ? "🧦 OS" : g.sizes }))).map(f => (
+          <button key={f.key} onClick={() => setFilterSize(f.key)}
+            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, border: filterSize === f.key ? "2px solid #6c5ce7" : "1px solid #ddd", background: filterSize === f.key ? "#6c5ce7" : "#fff", color: filterSize === f.key ? "#fff" : "#555", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: 1 }}>Status:</span>
+        {[
+          { key: "all", label: "All" },
+          { key: "need", label: "🔴 Need" },
+          { key: "partial", label: "🟡 Partial" },
+          { key: "complete", label: "🟢 Complete" },
+        ].map(f => (
+          <button key={f.key} onClick={() => setFilterStatus(f.key)}
+            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, border: filterStatus === f.key ? "2px solid #6c5ce7" : "1px solid #ddd", background: filterStatus === f.key ? "#6c5ce7" : "#fff", color: filterStatus === f.key ? "#fff" : "#555", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+        <button onClick={() => setAddOpen(true)} style={{ ...btnPrimary, fontSize: 12, padding: "8px 16px" }}>+ Add Item</button>
+        <button onClick={() => setViewMode(v => v === "cards" ? "table" : "cards")} style={{ ...btnGhost, fontSize: 12, padding: "8px 16px" }}>
+          {viewMode === "cards" ? "📊 Table View" : "🃏 Card View"}
+        </button>
+        <button onClick={() => setConfirmReset(true)} style={{ ...btnGhost, fontSize: 12, padding: "8px 16px", color: "#e74c3c", borderColor: "#e74c3c" }}>↻ Reset</button>
+      </div>
+
+      {/* Content */}
+      {viewMode === "cards" ? (
+        /* ── Card view grouped by size ── */
+        SIZE_GROUPS.map(group => {
+          const groupItems = groupedBySize.get(group.key) || [];
+          if (groupItems.length === 0 && filterSize !== "all" && filterSize !== group.key) return null;
+          if (groupItems.length === 0 && filterStatus !== "all") return null;
+
+          return (
+            <div key={group.key} style={{ marginBottom: 28 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, borderBottom: "2px solid #16213e", paddingBottom: 6 }}>
+                <span style={{ fontSize: 20 }}>{group.emoji}</span>
+                <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, fontWeight: 700, margin: 0, color: "#16213e", flex: 1 }}>
+                  {group.label} <span style={{ fontWeight: 400, fontSize: 13, color: "#888" }}>— {group.ageRange}</span>
+                </h2>
+                <span style={{ fontSize: 12, color: "#888", fontWeight: 600 }}>
+                  {groupItems.filter(it => getItemStatus(it) === "complete").length}/{groupItems.length}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {groupItems.map(it => {
+                  const status = getItemStatus(it);
+                  const sc = STATUS_COLORS[status];
+                  return (
+                    <div key={it.id} style={{ background: sc.bg, border: "1.5px solid " + sc.border, borderRadius: 12, padding: "12px 16px", display: "flex", gap: 12, alignItems: "center", opacity: status === "complete" ? 0.75 : 1 }}>
+                      {/* Photo */}
+                      <PhotoUpload photo={it.photo} onPhotoChange={photo => updateItem(it.id, { photo })} />
+
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                          <span style={{ fontSize: 16 }}>{getItemEmoji(it)}</span>
+                          <span style={{ fontWeight: 600, fontSize: 14, color: "#1a1a2e" }}>{getItemLabel(it)}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: sc.badge + "22", color: sc.badge, textTransform: "uppercase", letterSpacing: 0.5 }}>{sc.text}</span>
+                        </div>
+                        {it.notes && <div style={{ fontSize: 12, color: "#666", lineHeight: 1.4 }}>{it.notes}</div>}
+                        <button onClick={() => setEditNotes({ id: it.id, notes: it.notes || "" })}
+                          style={{ fontSize: 11, color: "#999", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: "2px 0", textDecoration: "underline" }}>
+                          {it.notes ? "edit note" : "+ add note"}
+                        </button>
+                      </div>
+
+                      {/* Quantity controls */}
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 90 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Owned</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <button onClick={() => updateItem(it.id, { owned: Math.max(0, (it.owned || 0) - 1) })}
+                            style={{ width: 28, height: 28, borderRadius: 8, border: "1.5px solid #ddd", background: "#fff", cursor: "pointer", fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", color: "#888" }}>−</button>
+                          <span style={{ fontSize: 20, fontWeight: 700, minWidth: 28, textAlign: "center", color: status === "complete" ? "#43a047" : "#1a1a2e" }}>{it.owned || 0}</span>
+                          <button onClick={() => updateItem(it.id, { owned: (it.owned || 0) + 1 })}
+                            style={{ width: 28, height: 28, borderRadius: 8, border: "1.5px solid #ddd", background: "#fff", cursor: "pointer", fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", color: "#888" }}>+</button>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#999" }}>
+                          / {it.target} needed
+                          <button onClick={() => {
+                              const val = prompt("Set target quantity:", it.target);
+                              if (val !== null && !isNaN(val)) updateItem(it.id, { target: Math.max(0, Number(val)) });
+                            }}
+                            style={{ background: "none", border: "none", color: "#6c5ce7", cursor: "pointer", fontSize: 11, fontFamily: "inherit", marginLeft: 4 }}>✎</button>
+                        </div>
+                      </div>
+
+                      {/* Delete */}
+                      <button onClick={() => removeItem(it.id)}
+                        style={{ background: "none", border: "none", color: "#ccc", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1, alignSelf: "center" }}
+                        onMouseEnter={e => e.target.style.color = "#e74c3c"} onMouseLeave={e => e.target.style.color = "#ccc"}>✕</button>
+                    </div>
+                  );
+                })}
+                {groupItems.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "#bbb", fontSize: 13, fontStyle: "italic" }}>No items in this group</div>}
+              </div>
+            </div>
+          );
+        })
+      ) : (
+        /* ── Table view ── */
+        <div style={{ background: "#fff", borderRadius: 14, overflow: "hidden", border: "1px solid #eee", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#16213e", color: "#fff" }}>
+                  <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Item</th>
+                  <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Size</th>
+                  <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Owned</th>
+                  <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Need</th>
+                  <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Status</th>
+                  <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Photo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((it, i) => {
+                  const status = getItemStatus(it);
+                  const sc = STATUS_COLORS[status];
+                  const sg = SIZE_GROUP_MAP[it.sizeGroup];
+                  return (
+                    <tr key={it.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f0f0f0" }}>
+                      <td style={{ padding: "10px 14px" }}>
+                        <span style={{ marginRight: 6 }}>{getItemEmoji(it)}</span>
+                        <span style={{ fontWeight: 600 }}>{getItemLabel(it)}</span>
+                      </td>
+                      <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600 }}>
+                        {sg ? sg.sizes : it.sizeGroup}
+                      </td>
+                      <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                          <button onClick={() => updateItem(it.id, { owned: Math.max(0, (it.owned||0) - 1) })}
+                            style={{ width: 22, height: 22, borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                          <span style={{ fontWeight: 700, minWidth: 20, textAlign: "center" }}>{it.owned || 0}</span>
+                          <button onClick={() => updateItem(it.id, { owned: (it.owned||0) + 1 })}
+                            style={{ width: 22, height: 22, borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600 }}>{it.target}</td>
+                      <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                        <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: sc.dot, marginRight: 4 }} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: sc.badge }}>{sc.text}</span>
+                      </td>
+                      <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                        {it.photo ? (
+                          <img src={it.photo} alt="" style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4, cursor: "pointer" }}
+                            onClick={() => setPhotoModal(it.id)} />
+                        ) : <span style={{ color: "#ccc" }}>—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Item Modal ── */}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add clothing item">
+        <label style={labelStyle}>Type</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {Object.entries(CLOTHING_TYPES).map(([k, v]) => (
+            <button key={k} onClick={() => {
+                const sg = TRANS_AGE_TYPES.includes(k) ? "one-size" : newItem.sizeGroup;
+                setNewItem({ ...newItem, type: k, sizeGroup: sg, target: v.defaultTarget });
+              }}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 16, border: newItem.type === k ? "2px solid #6c5ce7" : "1px solid #ddd", background: newItem.type === k ? "#f0edff" : "#fff", color: newItem.type === k ? "#6c5ce7" : "#888", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+              {v.emoji} {v.label}
+            </button>
+          ))}
+        </div>
+
+        {newItem.type === "custom" && (
+          <>
+            <label style={labelStyle}>Custom label</label>
+            <input style={inputStyle} placeholder="e.g. Wool booties" value={newItem.customLabel}
+              onChange={e => setNewItem({ ...newItem, customLabel: e.target.value })} />
+          </>
+        )}
+
+        {!TRANS_AGE_TYPES.includes(newItem.type) && (
+          <>
+            <label style={labelStyle}>Size group</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+              {SIZE_GROUPS.filter(g => g.key !== "one-size").map(g => (
+                <button key={g.key} onClick={() => setNewItem({ ...newItem, sizeGroup: g.key })}
+                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 16, border: newItem.sizeGroup === g.key ? "2px solid #6c5ce7" : "1px solid #ddd", background: newItem.sizeGroup === g.key ? "#f0edff" : "#fff", color: newItem.sizeGroup === g.key ? "#6c5ce7" : "#888", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                  {g.emoji} {g.sizes}
+                </button>
+              ))}
+              <button onClick={() => setNewItem({ ...newItem, sizeGroup: "one-size" })}
+                style={{ fontSize: 12, padding: "5px 12px", borderRadius: 16, border: newItem.sizeGroup === "one-size" ? "2px solid #6c5ce7" : "1px solid #ddd", background: newItem.sizeGroup === "one-size" ? "#f0edff" : "#fff", color: newItem.sizeGroup === "one-size" ? "#6c5ce7" : "#888", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                🧦 One Size
+              </button>
+            </div>
+          </>
+        )}
+
+        {TRANS_AGE_TYPES.includes(newItem.type) && (
+          <div style={{ background: "#f0edff", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#6c5ce7", fontWeight: 500 }}>
+            ℹ This item type is typically one-size / all-ages
+          </div>
+        )}
+
+        <label style={labelStyle}>Target quantity</label>
+        <input type="number" min="1" style={{ ...inputStyle, width: 80 }} value={newItem.target}
+          onChange={e => setNewItem({ ...newItem, target: Number(e.target.value) })} />
+
+        <label style={labelStyle}>Notes (optional)</label>
+        <input style={inputStyle} placeholder="e.g. Long-sleeve preferred" value={newItem.notes}
+          onChange={e => setNewItem({ ...newItem, notes: e.target.value })}
+          onKeyDown={e => { if (e.key === "Enter") handleAddItem(); }} />
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+          <button onClick={() => setAddOpen(false)} style={btnGhost}>Cancel</button>
+          <button onClick={handleAddItem} style={btnPrimary}>Add Item</button>
+        </div>
+      </Modal>
+
+      {/* ── Edit Notes Modal ── */}
+      <Modal open={!!editNotes} onClose={() => setEditNotes(null)} title="Edit note">
+        {editNotes && (
+          <>
+            <input style={inputStyle} value={editNotes.notes}
+              onChange={e => setEditNotes({ ...editNotes, notes: e.target.value })}
+              onKeyDown={e => { if (e.key === "Enter") { updateItem(editNotes.id, { notes: editNotes.notes }); setEditNotes(null); } }}
+              placeholder="e.g. Got 2 from Kleinanzeigen, need 1 more new"
+              autoFocus />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setEditNotes(null)} style={btnGhost}>Cancel</button>
+              <button onClick={() => { updateItem(editNotes.id, { notes: editNotes.notes }); setEditNotes(null); }} style={btnPrimary}>Save</button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Photo zoom modal ── */}
+      <Modal open={!!photoModal} onClose={() => setPhotoModal(null)} title="Photo">
+        {photoModal && (() => {
+          const it = items.find(i => i.id === photoModal);
+          if (!it || !it.photo) return null;
+          return <img src={it.photo} alt="" style={{ width: "100%", borderRadius: 8 }} />;
+        })()}
+      </Modal>
+
+      {/* ── Confirm Reset ── */}
+      <Modal open={confirmReset} onClose={() => setConfirmReset(false)} title="Reset wardrobe?">
+        <p style={{ fontSize: 14, color: "#555", margin: "0 0 18px", lineHeight: 1.5 }}>This will replace all items with the default template. Your photos and quantities will be lost.</p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => setConfirmReset(false)} style={btnGhost}>Cancel</button>
+          <button onClick={handleReset} style={btnDanger}>Reset All</button>
+        </div>
+      </Modal>
+
+      <div style={{ textAlign: "center", fontSize: 11, color: "#bbb", marginTop: 32, paddingBottom: 16 }}>
+        Companion to <a href="index.html" style={{ color: "#6c5ce7", textDecoration: "none" }}>Baby Prep Checklist</a> · Synced in real-time via Firebase
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
+   ROOT
+   ══════════════════════════════════════ */
+function App() {
+  const [sessionCode, setSessionCode] = useState(null);
+  if (!sessionCode) return <SessionLobby onJoin={setSessionCode} />;
+  return <ClothesApp sessionCode={sessionCode} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
