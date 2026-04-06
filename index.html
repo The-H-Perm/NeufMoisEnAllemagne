@@ -223,7 +223,8 @@ function SessionLobby({ onJoin }) {
         <p style={{ fontSize: 13, color: "#7f8c8d", fontWeight: 500 }}>Germany Edition — synced in real-time between devices</p>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
+        <a href="clothes.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>👕 Clothes</a>
         <a href="fr.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇫🇷 Français</a>
       </div>
 
@@ -431,7 +432,10 @@ function ChecklistApp({ sessionCode }) {
             Leave
           </button>
         </div>
-        <a href="fr.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇫🇷 Français</a>
+        <div style={{ display: "flex", gap: 8 }}>
+          <a href="clothes.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>👕 Clothes</a>
+          <a href="fr.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇫🇷 Français</a>
+        </div>
       </div>
 
       {/* Header */}
