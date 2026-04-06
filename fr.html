@@ -194,7 +194,8 @@ function SessionLobby({ onJoin }) {
         <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 800, margin: "0 0 6px", color: "#16213e" }}>Checklist Prépa Bébé</h1>
         <p style={{ fontSize: 13, color: "#7f8c8d", fontWeight: 500 }}>Édition Allemagne — synchronisée en temps réel entre appareils</p>
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
+        <a href="clothes.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>👕 Vêtements</a>
         <a href="index.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇬🇧 English</a>
       </div>
       {!mode && (
@@ -309,7 +310,10 @@ function ChecklistApp({ sessionCode }) {
           </button>
           <button onClick={handleDisconnect} style={{ fontSize: 11, color: "#999", background: "none", border: "1px solid #ddd", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>Quitter</button>
         </div>
-        <a href="index.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇬🇧 English</a>
+        <div style={{ display: "flex", gap: 8 }}>
+          <a href="clothes.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>👕 Vêtements</a>
+          <a href="index.html" style={{ fontSize: 13, fontWeight: 600, color: "#6c5ce7", textDecoration: "none", padding: "4px 12px", borderRadius: 20, border: "1.5px solid #6c5ce7" }}>🇬🇧 English</a>
+        </div>
       </div>
 
       <div style={{ textAlign: "center", marginBottom: 32 }}>
